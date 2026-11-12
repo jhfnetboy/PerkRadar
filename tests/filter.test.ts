@@ -134,4 +134,39 @@ describe("visible deals", () => {
       ["https://example.com/other", "https://example.com/c", "https://example.com/a", "https://example.com/b"],
     );
   });
+
+  it("keeps an AI lead classified as 其他, and can hide non-AI rows", () => {
+    const aiOther = deal({
+      id: 10,
+      canonicalUrl: "https://example.com/ai",
+      title: "SYNTHETIC Groq",
+      category: "其他",
+      sourceId: "free-llm",
+      aiRelevant: true,
+      aiCategory: "免费额度",
+    });
+    const plain = deal({
+      id: 11,
+      canonicalUrl: "https://example.com/plain",
+      title: "SYNTHETIC 普通软件",
+      category: "低价优惠",
+      sourceId: "appinn",
+      aiRelevant: false,
+    });
+    const rows = [aiOther, plain];
+    const personal = { claimed: [], favorites: [] };
+    const filters: DealFilters = { query: "", sourceId: "all", category: "all", onlyNew: false };
+    assert.deepEqual(
+      filterDeals(rows, { ...filters, includeOther: false, aiOnly: true }, personal).map((item) => item.canonicalUrl),
+      ["https://example.com/ai"],
+    );
+    assert.deepEqual(
+      filterDeals(rows, { ...filters, aiOnly: false }, personal).map((item) => item.canonicalUrl),
+      ["https://example.com/ai", "https://example.com/plain"],
+    );
+    assert.deepEqual(
+      filterDeals(rows, { ...filters, category: "免费额度" }, personal).map((item) => item.canonicalUrl),
+      ["https://example.com/ai"],
+    );
+  });
 });

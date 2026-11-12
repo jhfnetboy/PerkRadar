@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+- AI 线索：新增 Hacker News 标题搜索、Product Hunt AI Atom、六个仍有内容的 V2EX AI 节点、Free-LLM README 表格和 AI 创业/学生额度 JSON。只保留能从标题或清单行看出优惠的条目。Reddit、AppSumo、OpenAI 新闻 RSS、空的 V2EX 节点和未核实的 LINUX DO 分区没有接入，原因见 docs/SOURCES.md。
+- 分类：在原有标题评分上增加 AI 相关判断和六个 AI 分类（免费额度、额度重置、限时折扣、优惠码、学生/教育、新模型免费体验）。首页默认只看 AI，可用「只看 AI」切回全部。重置节奏和截止日期只在原文写明时保存，不推算下一次重置，也不把“30 天”换成时间戳。
+- 日报：`GET /api/digest?since=24h&format=markdown|json` 和 `npm run digest`。按分类列出窗口内新收录的 AI 线索。生产容器走 HTTP 接口。
+- 展示：AI 优惠即使基础分类是「其他」也不会被「隐藏其他」清掉。收藏键和 `{ claimed, favorites }` 不变。
+
 - 安全：npm 默认回环监听；可选 PERKRADAR_ACCESS_TOKEN、签名会话和 Bearer 保护网页/数据/刷新 API；补 TLS 代理模板和登录限流。
 - 数据质量：分类改信号评分并读时重算（可回退）；修 Pro/更新/问号误判，默认显示全部、搜索不隐藏其他。Epic 逐条结构验证，异常不清旧记录；所有文本源共享日期防护。
 - 稳定性：429/503 有限退避、尊重 Retry-After、短时熔断和 Jina 配置诊断；SQLite scheduler/refresh 租约与心跳、重启超期只补一轮。

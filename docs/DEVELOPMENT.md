@@ -17,12 +17,15 @@
 | `src/components/deal-board.css` | 正式页与本地 dev 预览 `/demo` 共用的看板样式 |
 | `src/app/demo/page.tsx` | 7 条示例的设计预览页（1 条「其他」默认隐藏，「只看新增」3 条，开关只在当前页内存生效、刷新重置），只在源码与 dev 预览可用，生产镜像不含此路由 |
 | `src/app/api/deals/route.ts` | `GET /api/deals` |
+| `src/app/api/digest/route.ts` | `GET /api/digest` |
 | `src/app/api/health/route.ts` | `GET /api/health` |
 | `src/app/api/refresh/route.ts` | `POST /api/refresh` |
 | `src/instrumentation.ts` | Node 服务启动时登记调度 |
-| `src/lib/source-defs.ts` | 七个来源的固定 URL |
-| `src/lib/parse/` | LINUX DO、RSS/Atom、Epic 解析 |
+| `src/lib/source-defs.ts` | 十七个来源的固定 URL |
+| `src/lib/parse/` | LINUX DO、RSS/Atom、Epic、HN、Markdown 优惠表、创业/学生额度 JSON |
 | `src/lib/classify.ts` | 内容类型/优惠信号评分与置信度 |
+| `src/lib/ai.ts` | AI 优惠判断、重置节奏、明确截止日期 |
+| `src/lib/digest.ts` | 日报分组；`GET /api/digest` 与 `npm run digest` 共用 |
 | `src/lib/board-view.ts` | 客户端校验 `/api/deals`、`/api/refresh` 与 SSR 快照；拒绝危险 URL 与畸形结构；计数从校验后 `deals` 推导 |
 | `src/lib/filter-deals.ts` | 浏览器里的搜索、筛选和排序；容忍畸形字段，搜索字面包含；可选 `includeOther`，省略时沿用原有筛选行为 |
 | `src/lib/refresh.ts` | 一轮抓取、锁、失败隔离 |
@@ -119,7 +122,7 @@ Docker 的构建和启停见 [OPERATIONS.md](OPERATIONS.md)。
 - `sourceHealth`、`activeCount`、`newCount`、`refreshInProgress`。
 - `roundStatus`：`success`、`partial`、`failed`，或还没有结束轮时 `null`。
 - `failures`：这一轮失败来源的 `sourceId`、`sourceName`、`error`。
-- `sources`：固定 7 个来源。`lastOk` 在从未跑过时是 `null`。`lastFetched` 是解析出的条数，`lastInserted` 是这一轮新插入的条数，`lastFinalUrl` 是跟随重定向后的最终 URL；可选 `quality` 提供近 8 轮连续失败数、条数骤降、解析结构异常和简短告警。旧响应没有 `quality` 时客户端按无告警兼容处理。
+- `sources`：固定来源，数量等于 `SOURCE_DEFS`。`lastOk` 在从未跑过时是 `null`。`lastFetched` 是解析出的条数，`lastInserted` 是这一轮新插入的条数，`lastFinalUrl` 是跟随重定向后的最终 URL；可选 `quality` 提供近 8 轮连续失败数、条数骤降、解析结构异常和简短告警。旧响应没有 `quality` 时客户端按无告警兼容处理。AI 字段 `aiRelevant`、`aiCategory`、`relevance`、`resetCadence` 在读取时计算；旧响应没有这些字段时，页面把该条视为非 AI。
 - `deals`：当前页在架条目，统计字段仍是全局值。`isNew` 表示它的 `first_seen_round_id` 等于最近一轮已结束的 id。`expiresSoon` 表示到期时刻在 48 小时内且仍晚于现在。`summary` 没有正文时是空字符串。
 - `freshness`：`lastRoundAgeMs`、`stale`（超过 2.5 小时）、`severe`（超过 4 小时）。
 - `anomalies`：数据过时、上一轮全失败、某源成功但 0 条、某源解析条数骤降、连续失败达到 3 轮和解析结构异常等文字提示。
@@ -173,7 +176,9 @@ docker compose -p perkradar logs --no-color --tail=400 2>&1 | grep '"event":"rou
 | `round_start` | stdout | `trigger`（`manual` / `schedule`）、`sources` | 一轮开始，来源总数 |
 | `round_finished` | stdout | `roundId`、`trigger`、`status`（`success` / `partial` / `failed`）、`okSources`、`totalSources`、`inserted` | 一轮结束，成功源数与新插入条数 |
 | `source_round` | stdout | `roundId`、`sourceId`、`ok`、`attemptedAt`、`completedAt`、`durationMs`、`parsed`、`inserted`、`finalUrl`、`error`、`reason` | 每源逐条结果；`attemptedAt` / `completedAt` 是 ISO 时刻，`error` 是截断的错误文本，`ok` 为真时 `reason` 为 `null` |
-| `offsite_link_dropped` | stdout | `sourceId`、`dropped` | 该源丢弃了多少条不在允许域名内的链接 |
+| `offsite_link_dropped` | stdout | `sourceId`、`dropped` | 该源丢弃了多少条不在允许域名内、或带凭证的链接 |
+| `ai_filter_dropped` | stdout | `sourceId`、`dropped` | AI 来源入库前丢掉的非优惠条数，不含标题 |
+| `digest_read_failed` | stderr | `error` | `GET /api/digest` 读库失败 |
 | `round_write_failed` | stderr | `trigger`、`error` | 一轮写库事务失败并回滚 |
 | `snapshot_write_failed` | stderr | `error` | 公开快照写入失败 |
 | `deals_read_failed` | stderr | `error` | `GET /api/deals` 读库失败 |
@@ -236,14 +241,14 @@ docker compose -p perkradar logs --no-color > "$HOME/perkradar-archives/deals-$(
 
 这是改界面之后要人眼看的标准，不是现成的自动测试。改布局之后必须重新看，不能用一次历史验收代替。验收顺序、真实数据与异常路径见 [CONTRIBUTING.md](../CONTRIBUTING.md)「改动流程」与本节清单；单次验收记录属本地产物，不随公开仓库发布。
 
-正式首页按 `/demo` 的布局：顶部只有品牌与「立即刷新」（开启访问令牌时多一个「退出」）；搜索、排序、来源、分类、收藏、运行状态与逐源结果在左侧状态区和提示区；「信息列表」标题行右侧是「查看全部线索」与「只看新增」两个开关，并显示可见条数与「已隐藏 N 条「其他」线索」；卡片只保留标题、收藏文字按钮、摘要框、原文信息、标签、「打开原文」与「标记已领」。`/demo` 是本地 dev 预览的设计预览页（7 条示例，其中 1 条「其他」默认隐藏，「只看新增」仍为 3 条，开关只在当前页面内存生效、刷新重置），只在源码与 dev 预览可用；生产镜像包含首页、登录页和数据/认证API，不含 `/demo`。正式页与它共用 `src/components/deal-board.css`。
+正式首页按 `/demo` 的布局：顶部只有品牌与「立即刷新」（开启访问令牌时多一个「退出」）；搜索、排序、来源、分类、收藏、运行状态与逐源结果在左侧状态区和提示区；「信息列表」标题行右侧是「只看 AI」「查看全部线索」与「只看新增」，并显示可见条数。卡片保留标题、收藏文字按钮、摘要框、原文信息、标签、「打开原文」与「标记已领」；AI 分类和重置节奏有则显示。「只看 AI」默认打开，记在 `perkradar-ai-only-v1`，没有该键时视为打开。`/demo` 仍是 7 条示例的本地 dev 预览，不使用这套真实筛选，开关只在当前页面内存生效、刷新重置；生产镜像包含首页、登录页和数据/认证 API，不含 `/demo`。正式页与它共用 `src/components/deal-board.css`。
 
 - 1440px 和 1280px：左侧为筛选与状态栏，主区为「信息列表」卡片；左栏文字不重叠、不裁切。不要退回成居中的窄手机条。
 - 390px：单列，无横向溢出；顶部信息不裁切、卡片底部控件不溢出；来源和类别不要堆成好几屏才能看到第一条。
 - 浅色底，`RGB(20,148,130)` 只作小面积强调；未实现深色模式；系统字体，不从外部字体或 CDN 加载。
 - 顶部只有品牌和「立即刷新」；刷新中按钮禁用并显示「刷新中」。左侧状态区能看到北京时间、来源成功数、已收录数、本轮新增与逐源结果；冷却或失败时有红色说明。页面持续可见地说明条目来自公开订阅源、只是抓到的线索、未核实有效性 / 条件 / 能否领取。
 - 交互逐项看：搜索标题（字面包含）、排序、点一个来源、点一个类别、只看本轮新增、收藏、标记已领、立即刷新、重置、刷新后状态保留。已领卡片变灰并排到列表后面。刷新页面后，`perkradar-personal-v1` 与 `perkradar-show-all-v1` 还在；写入失败有可见提示，另一个标签页的改动会通过 `storage` 事件同步过来。
-- 显式隐藏「其他」逐项看：「全部」视图首屏可见条数与「已隐藏 N 条「其他」线索」提示；点「查看全部线索」后显示所有条目；与「只看新增」组合；显式点「其他」分类或「我的收藏」时不隐藏；搜索始终包含其他分类；重置恢复显示全部；刷新后开关保留。这只是展示过滤，收录规则、分类规则与数据库都不变。本地 `/demo` 的 7 条示例默认隐藏 1 条「其他」，开关刷新即重置。
+- 显式隐藏「其他」逐项看：「全部」视图首屏可见条数与「已隐藏 N 条「其他」线索」提示；点「查看全部线索」后显示所有条目；与「只看新增」组合；显式点「其他」分类或「我的收藏」时不隐藏；搜索始终包含其他分类；重置恢复显示全部，并恢复「只看 AI」。已经判成 AI 优惠的条目不会因为基础分类是「其他」被隐藏。这只是展示过滤。本地 `/demo` 的 7 条示例不包含「只看 AI」。
 - 异常路径用浏览器 `route` 改写 `/api/refresh`：恶意标题 / 链接、空库、畸形结构、429、断网；逐项确认页面保留旧内容或显示明确提示，不出现空白和假条目。客户端 `src/lib/board-view.ts` 拒绝 `javascript:` / `data:` / 带凭据 / 超长 URL，截断异常文本，关键结构坏时拒绝整份数据，计数从校验后 `deals` 推导。
 - 空库、筛选为空、轮询接口失败、本地状态写入失败各有区分提示，不能用假条目填上，也不能让几种状态看起来一样。
 - 命令与浏览器验收记录：`npm test`、`npm run lint`、`npx --no-install tsc --noEmit`、`git diff --check` 通过，1280 桌面 / 390 手机预览无控制台报错、无失败请求、无关键视觉缺陷，390px 无横向溢出。测试项数以 `npm test` 输出为准。

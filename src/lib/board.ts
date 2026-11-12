@@ -1,3 +1,4 @@
+import { classifyAi } from "./ai";
 import { classify } from "./classify";
 import { EXPIRING_SOON_MS, SEVERE_AFTER_MS, STALE_AFTER_MS } from "./config";
 import {
@@ -13,7 +14,7 @@ import { isExpiringSoon, isStale } from "./retention";
 import { toPlain } from "./text";
 import { isRefreshRunning } from "./refresh-lock";
 import { jinaMissingKey } from "./sources";
-import { SOURCE_DEFS, sourceName } from "./source-defs";
+import { SOURCE_DEFS, sourceAllowsEmpty, sourceAssumesAi, sourceName } from "./source-defs";
 import { formatBeijing } from "./time";
 import type { BoardState, Category, DealDTO, SourceStatus } from "./types";
 import { CATEGORIES } from "./types";
@@ -39,16 +40,20 @@ export function getBoardState(now = Date.now()): BoardState {
       ),
   );
 
-  const deals: DealDTO[] = active.map((deal) => ({
+  const deals: DealDTO[] = active.map((deal) => {
+    const title = toPlain(deal.title);
+    const summary = toPlain(deal.summary);
+    const ai = classifyAi(`${title}\n${summary}`, { assumeTopic: sourceAssumesAi(deal.sourceId) });
+    return {
     id: deal.id,
     url: deal.url,
     canonicalUrl: deal.canonicalUrl,
     // Rows written before the noise rules existed stay dirty until their source
     // re-lists them, which can outlast the 7-day window. Re-clean on read instead
     // of rewriting the user's database; toPlain is idempotent.
-    title: toPlain(deal.title),
-    summary: toPlain(deal.summary),
-    category: process.env.PERKRADAR_STORED_CATEGORIES === "1" ? asCategory(deal.category) : classify(deal.title, deal.sourceId),
+    title,
+    summary,
+    category: process.env.PERKRADAR_STORED_CATEGORIES === "1" ? asCategory(deal.category) : classify(title, deal.sourceId),
     sourceId: deal.sourceId,
     sourceName: sourceName(deal.sourceId),
     publishedAt: deal.publishedAt,
@@ -57,7 +62,12 @@ export function getBoardState(now = Date.now()): BoardState {
     expiresLabel: deal.expiresAt == null ? null : formatBeijing(deal.expiresAt),
     expiresSoon: isExpiringSoon(deal.expiresAt, now),
     isNew: round != null && deal.firstSeenRoundId === round.id,
-  }));
+    aiRelevant: ai.relevant,
+    aiCategory: ai.category,
+    relevance: ai.relevant ? ai.score + (deal.expiresAt != null ? 2 : 0) : 0,
+    resetCadence: ai.resetCadence,
+    };
+  });
 
   const qualityBySource = new Map(
     SOURCE_DEFS.map((source) => {
@@ -75,7 +85,7 @@ export function getBoardState(now = Date.now()): BoardState {
       const structureAnomaly = Boolean(
         current &&
           !current.ok &&
-          /未能解析|商品列表|网页而不是订阅源|不是 JSON|LINUX DO 福利列表|Markdown 解析出条目/.test(current.error ?? ""),
+          /未能解析|商品列表|网页而不是订阅源|不是 JSON|LINUX DO 福利列表|Markdown 解析出条目|清单/.test(current.error ?? ""),
       );
       const warnings: string[] = [];
       if (consecutiveFailures >= 3) warnings.push(`连续失败 ${consecutiveFailures} 轮`);
@@ -139,7 +149,7 @@ export function getBoardState(now = Date.now()): BoardState {
       if (drop >= 0.5) {
         anomalies.push(`${source.name} 解析条数从 ${before.fetchedCount} 降到 ${source.lastFetched}`);
       }
-    } else if (source.lastOk === true && source.lastFetched === 0) {
+    } else if (source.lastOk === true && source.lastFetched === 0 && !sourceAllowsEmpty(source.id)) {
       anomalies.push(`${source.name} 本轮成功但解析到 0 条`);
     }
     if (source.quality?.consecutiveFailures && source.quality.consecutiveFailures >= 3) {

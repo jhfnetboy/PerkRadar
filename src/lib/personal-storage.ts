@@ -3,6 +3,8 @@ export const STORAGE_KEY = "perkradar-personal-v1";
 export const LEGACY_STORAGE_KEY = "daily-deals-personal-v1";
 export const SHOW_ALL_KEY = "perkradar-show-all-v1";
 export const LEGACY_SHOW_ALL_KEY = "daily-deals-show-all-v1";
+/** 缺省为只看 AI。与收藏键分开，不改 `{ claimed, favorites }`。 */
+export const AI_ONLY_KEY = "perkradar-ai-only-v1";
 type Store = Pick<Storage, "getItem" | "setItem">;
 export function loadPersonal(store: Store, fallback: Personal = { claimed: [], favorites: [] }): Personal {
   try {
@@ -17,6 +19,16 @@ export function loadPersonal(store: Store, fallback: Personal = { claimed: [], f
     return result;
   } catch { return fallback; }
 }
+export function loadAiOnly(store: Store): boolean {
+  try {
+    const value = store.getItem(AI_ONLY_KEY);
+    if (value === null) return true;
+    return value === "1";
+  } catch {
+    return true;
+  }
+}
+
 export function loadShowAll(store: Store): boolean {
   try {
     const current = store.getItem(SHOW_ALL_KEY);

@@ -9,6 +9,9 @@
 | `appinn-public-sample.xml` | `https://www.appinn.com/feed/`（RSS 2.0） | **未记录**（首次纳入仓库 2026-11-08） | 只保留解析所需的标题、链接、日期与短描述；`<content:encoded>` 的整篇正文已裁剪，避免转载第三方全文 |
 | `iplaysoft-public-sample.xml` | `https://www.iplaysoft.com/feed`（RSS 2.0） | **未记录**（首次纳入仓库 2026-11-08） | 单条条目，保留标题、链接与描述；不含账号信息 |
 | `epic-public-sample.json` | Epic `freeGamesPromotions` 静态端点 | **未记录**（首次纳入仓库 2026-11-08） | 保留商品与促销字段结构，用于当前免费窗口判定 |
+| `hn-synthetic.json` | Hacker News Algolia `hits` 形状 | 2026-11-12 对照公开搜索响应手写 | SYNTHETIC。含站外 `url`，解析结果必须改用讨论页链接 |
+| `free-llm-synthetic.md` | Free-LLM README 的标题加表格 | 2026-11-12 对照公开 README 结构手写 | SYNTHETIC。不是上游正文。含代码块、本地工具小节、凭证链接和「30 天」 |
+| `programs-synthetic.json` | `programs.json` 的 `startups` / `research` | 2026-11-12 对照公开 JSON 字段手写 | SYNTHETIC。`generated` 不得被当成发布时间 |
 
 ## 约定
 

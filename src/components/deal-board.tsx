@@ -20,10 +20,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AuthExpiredError, readBoard, expireBoard } from "@/lib/board-client";
-import { loadPersonal, loadShowAll, STORAGE_KEY, SHOW_ALL_KEY, LEGACY_STORAGE_KEY, LEGACY_SHOW_ALL_KEY, type Personal } from "@/lib/personal-storage";
+import { loadPersonal, loadShowAll, loadAiOnly, STORAGE_KEY, SHOW_ALL_KEY, AI_ONLY_KEY, LEGACY_STORAGE_KEY, LEGACY_SHOW_ALL_KEY, type Personal } from "@/lib/personal-storage";
 import { filterDeals, type DealSort } from "@/lib/filter-deals";
 import { normalizeBoardState } from "@/lib/board-view";
-import { CATEGORIES, type BoardState, type Category, type DealDTO, type SourceStatus } from "@/lib/types";
+import { AI_CATEGORIES, CATEGORIES, type AiCategory, type BoardState, type Category, type DealDTO, type SourceStatus } from "@/lib/types";
 import "./deal-board.css";
 
 const emptyPersonal: Personal = { claimed: [], favorites: [] };
@@ -65,9 +65,10 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
   const [board, setBoard] = useState<BoardState>(() => normalizeBoardState(initial) ?? initial);
   const [query, setQuery] = useState("");
   const [sourceId, setSourceId] = useState<string | "all">("all");
-  const [category, setCategory] = useState<Category | "all" | "favorites">("all");
+  const [category, setCategory] = useState<Category | AiCategory | "all" | "favorites">("all");
   const [onlyNew, setOnlyNew] = useState(false);
-  // 默认显示全部；尊重迁移后的偏好，搜索时不隐藏其他。
+  // 默认只看 AI；「查看全部线索」仍只控制是否隐藏「其他」。
+  const [aiOnly, setAiOnly] = useState(true);
   const [showAllLeads, setShowAllLeads] = useState(true);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [sort, setSort] = useState<DealSort>("newest");
@@ -88,13 +89,15 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
 
   useEffect(() => {
     try {
+      setAiOnly(loadAiOnly(localStorage));
       setShowAllLeads(loadShowAll(localStorage));
       setPersonal(loadPersonal(localStorage));
     } catch { setStorageError("浏览器存储不可用，本次操作仅保留在当前页面。"); }
     setPersonalReady(true);
     // 另一个标签页改动本机状态后，重新读取，避免旧内存覆盖新值。
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== null && event.key !== STORAGE_KEY && event.key !== SHOW_ALL_KEY && event.key !== LEGACY_STORAGE_KEY && event.key !== LEGACY_SHOW_ALL_KEY) return;
+      if (event.key !== null && event.key !== STORAGE_KEY && event.key !== SHOW_ALL_KEY && event.key !== AI_ONLY_KEY && event.key !== LEGACY_STORAGE_KEY && event.key !== LEGACY_SHOW_ALL_KEY) return;
+      if (event.key === null || event.key === AI_ONLY_KEY) setAiOnly(loadAiOnly(localStorage));
       if (event.key === null || (event.key === SHOW_ALL_KEY || event.key === LEGACY_SHOW_ALL_KEY)) setShowAllLeads(loadShowAll(localStorage));
       if (event.key !== SHOW_ALL_KEY) {
         try { setPersonal((previous) => loadPersonal(localStorage, previous)); } catch { /* retain memory */ }
@@ -140,6 +143,15 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
     } catch {
       // 隐私模式或配额满时，状态和存储必须显式说明不一致，而不是静默成功。
       setStorageError("收藏和已领没能写入这台浏览器（可能是隐私模式或存储已满），本次改动只在当前页面有效。");
+    }
+  }
+
+  function saveAiOnly(next: boolean) {
+    setAiOnly(next);
+    try {
+      localStorage.setItem(AI_ONLY_KEY, next ? "1" : "0");
+    } catch {
+      // 展示偏好写入失败只影响下次打开；当前页面仍按用户选择展示。
     }
   }
 
@@ -200,6 +212,7 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
     setQuery("");
     setOnlyNew(false);
     saveShowAll(true);
+    saveAiOnly(true);
     setSort("newest");
   }
 
@@ -207,19 +220,18 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
   const favoriteSet = new Set(personal.favorites);
   // 「其他」只在默认的「全部」视图隐藏；显式选分类或收藏时仍按用户选择展示。
   const hideOther = !showAllLeads && category === "all" && !query.trim();
-  const filters = { query, sourceId, category, onlyNew, sort, includeOther: !hideOther };
-  const matching =
-    category === "favorites" && !personalReady
-      ? []
-      : filterDeals(board.deals, { ...filters, includeOther: true }, personal);
-  const visible =
-    category === "favorites" && !personalReady
-      ? []
-      : filterDeals(board.deals, filters, personal);
-  const hiddenOtherCount = hideOther ? matching.filter((item) => item.category === "其他").length : 0;
+  const filters = { query, sourceId, category, onlyNew, sort, includeOther: !hideOther, aiOnly };
+  const ready = category !== "favorites" || personalReady;
+  const visible = ready ? filterDeals(board.deals, filters, personal) : [];
+  const hiddenOtherCount = hideOther && ready
+    ? filterDeals(board.deals, { ...filters, includeOther: true }, personal).length - visible.length
+    : 0;
+  const hiddenNonAiCount = aiOnly && ready
+    ? filterDeals(board.deals, { ...filters, aiOnly: false, includeOther: true }, personal).filter((item) => item.aiRelevant !== true).length
+    : 0;
   const waitingForFirst = !board.lastUpdatedAt && (board.refreshInProgress || refreshing);
   const busy = refreshing || board.refreshInProgress;
-  const activeFilters = [sourceId !== "all", category !== "all", query.trim().length > 0, onlyNew, sort !== "newest"].filter(Boolean).length;
+  const activeFilters = [sourceId !== "all", category !== "all", query.trim().length > 0, onlyNew, sort !== "newest", !aiOnly].filter(Boolean).length;
 
   const statusItems = [
     { label: "更新", value: board.lastUpdatedLabel ? `${board.lastUpdatedLabel} 北京时间` : "尚未更新", testId: "status-update" },
@@ -251,7 +263,9 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
           ? board.lastUpdatedAt
             ? "这一轮没有已收录的条目。失败的来源会在下一轮重试，这里不会填入示例优惠。"
             : "服务端还没有完成抓取。空列表是真实状态，不会填入示例优惠。"
-          : hiddenOtherCount > 0 && visible.length === 0
+          : hiddenNonAiCount > 0 && visible.length === 0
+            ? "当前只显示 AI 线索。取消「只看 AI」可查看其余条目。"
+            : hiddenOtherCount > 0 && visible.length === 0
             ? "当前条件下只剩已隐藏的「其他」线索；打开「查看全部线索」即可查看。"
             : "没有符合当前筛选的条目。";
 
@@ -313,6 +327,9 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
                 <h3>分类</h3>
                 <div className="demo-filter-row">
                   <Pill pressed={category === "all"} testId="category-chip" onClick={() => setCategory("all")}>全部</Pill>
+                  {AI_CATEGORIES.map((item) => (
+                    <Pill key={item} pressed={category === item} testId="category-chip" onClick={() => setCategory(item)}>{item}<span>{board.deals.filter((deal) => deal.aiCategory === item).length}</span></Pill>
+                  ))}
                   {CATEGORIES.map((item) => (
                     <Pill key={item} pressed={category === item} testId="category-chip" onClick={() => setCategory(item)}>{item}<span>{categoryCounts.get(item) ?? 0}</span></Pill>
                   ))}
@@ -341,10 +358,17 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
             <div className="demo-results-heading" data-testid="results-heading">
               <h1>信息列表</h1>
               <span className="board-results-count" role="status" data-testid="visible-count">{visible.length} 条线索</span>
+              {hiddenNonAiCount > 0 ? (
+                <span className="board-hidden-note" role="status" data-testid="hidden-ai-note">已隐藏 {hiddenNonAiCount} 条非 AI 线索</span>
+              ) : null}
               {hiddenOtherCount > 0 ? (
                 <span className="board-hidden-note" role="status" data-testid="hidden-note">已隐藏 {hiddenOtherCount} 条「其他」线索</span>
               ) : null}
               <div className="demo-results-actions">
+                <label className="demo-new-toggle demo-results-toggle">
+                  <input type="checkbox" data-testid="ai-only" checked={aiOnly} onChange={(event) => saveAiOnly(event.target.checked)} />
+                  <span className="demo-switch" aria-hidden="true" />只看 AI
+                </label>
                 <label className="demo-new-toggle demo-results-toggle">
                   <input type="checkbox" data-testid="show-all" checked={showAllLeads} onChange={(event) => saveShowAll(event.target.checked)} />
                   <span className="demo-switch" aria-hidden="true" />查看全部线索
@@ -383,7 +407,8 @@ export function DealBoard({ initial, authEnabled = false }: { initial: BoardStat
             ) : null}
 
             <footer className="demo-footer" data-testid="footer">
-              <p className="board-footer-note">默认显示全部分类；可取消「查看全部线索」来隐藏「其他」，搜索时始终包含其他分类。</p>
+              <p className="board-footer-note">默认只显示 AI 相关优惠线索；取消「只看 AI」可查看全部。AI 分类来自标题和摘要里的关键词，不是领取核验。</p>
+              <p className="board-footer-note">可取消「查看全部线索」来隐藏「其他」。已经判为 AI 优惠的条目仍会留下。搜索时始终包含「其他」。</p>
               <p className="board-footer-note">没有到期时间的条目，从发布时刻起保留 7 天；正好满 7 天仍保留，再早 1 毫秒淘汰。有到期时间的，到点即下架。</p>
               <p className="board-footer-note">本轮新增只包含最近一轮成功写入的新链接。某一来源失败时，不会改写它已经抓到的标题和时间。</p>
             </footer>
@@ -433,8 +458,10 @@ function DealCard({ deal, claimed, favorite, onClaim, onFavorite }: { deal: Deal
 
       <div className="deal-tags">
         {deal.isNew ? <span className="deal-fresh" data-testid="deal-new">本轮新增</span> : null}
+        {deal.aiCategory ? <Badge variant="secondary" data-testid="deal-ai-category">{deal.aiCategory}</Badge> : null}
         <Badge variant="secondary" data-testid="deal-category">{deal.category}</Badge>
         <Badge variant="outline" data-testid="deal-source">{deal.sourceName}</Badge>
+        {deal.resetCadence ? <Badge variant="outline" data-testid="deal-reset">重置 {deal.resetCadence}</Badge> : null}
         {deal.expiresLabel ? <Badge variant={deal.expiresSoon ? "destructive" : "outline"} data-testid="deal-expiry">{deal.expiresSoon ? "临期" : "到期"} {deal.expiresLabel}</Badge> : null}
         {claimed ? <span className="deal-claimed-state" data-testid="deal-claimed">已标记已领</span> : null}
       </div>
