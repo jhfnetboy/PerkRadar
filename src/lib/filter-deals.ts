@@ -1,15 +1,17 @@
-import type { Category, DealDTO } from "./types";
+import { AI_CATEGORIES, type AiCategory, type Category, type DealDTO } from "./types";
 
 export type DealSort = "newest" | "expiring";
 
 export type DealFilters = {
   query: string;
   sourceId: string | "all";
-  category: Category | "all" | "favorites";
+  category: Category | AiCategory | "all" | "favorites";
   onlyNew: boolean;
   sort?: DealSort;
   /** 默认 true；只有明确传 false 才隐藏「其他」，避免影响既有调用。 */
   includeOther?: boolean;
+  /** 省略时不过滤。正式页默认打开，只看 AI 线索。 */
+  aiOnly?: boolean;
 };
 
 type Loose = Record<string, unknown>;
@@ -42,6 +44,8 @@ export function filterDeals(
   const sort = looseFilters.sort === "expiring" ? "expiring" : undefined;
   // 省略字段时保持旧行为；正式页只在「全部」视图把「其他」排除。
   const includeOther = looseFilters.includeOther !== false;
+  const aiOnly = looseFilters.aiOnly === true;
+  const aiCategory = (AI_CATEGORIES as readonly string[]).includes(category);
   const claimed = stringSet(loosePersonal.claimed);
   const favorites = stringSet(loosePersonal.favorites);
   const list = Array.isArray(deals) ? deals : [];
@@ -54,9 +58,12 @@ export function filterDeals(
     if (sourceId !== "all" && sourceId !== text(deal.sourceId)) return false;
     if (onlyNew && deal.isNew !== true) return false;
     const canonicalUrl = text(deal.canonicalUrl);
-    if (!includeOther && text(deal.category) === "其他") return false;
+    if (!includeOther && text(deal.category) === "其他" && deal.aiRelevant !== true) return false;
+    if (aiOnly && deal.aiRelevant !== true) return false;
     if (category === "favorites") return favorites.has(canonicalUrl);
-    if (category !== "all" && category !== text(deal.category)) return false;
+    if (aiCategory) {
+      if (text(deal.aiCategory) !== category) return false;
+    } else if (category !== "all" && category !== text(deal.category)) return false;
     return true;
   });
 

@@ -23,7 +23,7 @@ PerkRadar 是一个可自行部署的优惠线索聚合器。它定时读取固�
 ### 获取源码
 
 ```bash
-git clone https://github.com/luobinger/PerkRadar.git
+git clone https://github.com/jhfnetboy/PerkRadar.git
 cd PerkRadar
 ```
 
@@ -122,12 +122,13 @@ perks.example.com {
 - 手动触发刷新，并查看刷新冷却、来源成功数和异常提示
 - 查看当前在架条目、最近一轮状态、逐来源结果和数据新鲜度
 
-首页默认显示全部分类。可取消“查看全部线索”来隐藏“其他”；搜索、显式选择“其他”或“我的收藏”时不隐藏。重置恢复显示全部；迁移用户保留已保存的展示偏好。每次渲染 100 条，可继续加载，提示当前范围。
+首页默认只显示 AI 相关线索，可取消「只看 AI」查看全部来源。可再取消「查看全部线索」来隐藏「其他」；搜索、显式选择「其他」或「我的收藏」时不隐藏「其他」。已经判成 AI 优惠、但基础分类仍是「其他」的条目会留下来。重置恢复「只看 AI」和显示全部。迁移用户保留已保存的展示偏好。每次渲染 100 条，可继续加载，提示当前范围。
 
 收藏与已领状态只保存在当前浏览器的 `localStorage`：
 
 - `perkradar-personal-v1`：`{ "claimed": string[], "favorites": string[] }`
 - `perkradar-show-all-v1`：是否显示“其他”线索
+- `perkradar-ai-only-v1`：是否只看 AI 线索。没有这个键时默认只看 AI
 
 新键不存在时会读取旧 `daily-deals-*` 键，并尝试迁移到新键；旧键保留，不会被删除。后续操作只写入新键，回退旧版前端时不会自动同步迁移后的新增收藏和已领状态。收藏或已领状态保存失败时，页面明确提示，本次操作只保留在当前页；展示偏好或自动迁移写入失败时，也不保证刷新后保留。
 
@@ -135,7 +136,7 @@ perks.example.com {
 
 ## 数据来源与处理方式
 
-当前使用七个固定来源。来源地址写在 [`src/lib/source-defs.ts`](src/lib/source-defs.ts) 中，应用调用方不能替换。
+当前使用十七个固定来源。来源地址写在 [`src/lib/source-defs.ts`](src/lib/source-defs.ts) 中，应用调用方不能替换。原有七个综合来源仍全部抓取；新增来源只保留标题或清单行里能看出 AI 优惠的条目。
 
 | 来源 | 格式 | 主要规则 |
 | --- | --- | --- |
@@ -146,6 +147,11 @@ perks.example.com {
 | 小众软件 | RSS / Atom | 收录允许域名内的 feed 条目 |
 | 果核剥壳 | RSS / Atom | 收录允许域名内的 feed 条目 |
 | 异次元软件世界 | RSS / Atom | 请求会跟随重定向到最终地址 |
+| Hacker News AI 优惠 | Algolia JSON | 五个固定标题短语；条目链接用讨论页，不用站外原文 |
+| Product Hunt AI | Atom | `feed?category=artificial-intelligence`；只留标题里写明优惠的产品 |
+| V2EX OpenAI / Cursor / Claude / Gemini / DeepSeek / 人工智能 | Atom | 节点本身已是 AI 话题，只留优惠、额度、折扣类标题 |
+| Free-LLM 免费额度 | Markdown 表格 | 固定仓库 README 的免费档、可续额度和一次性试用表 |
+| AI 创业与学生额度 | JSON | 固定 `programs.json` 的 startup 与 research 列表 |
 
 所有来源的条目都使用 7 天在架窗口：Epic 按促销开始时间计算，其他来源优先使用有效发布日期，缺失时按首次入库时间计算，但不把首次入库时间显示为原文发布时间。RSS / Atom 可使用来源的更新日期等备用字段；LINUX DO 条目缺少可识别的日期字段时会被跳过。条目链接必须位于该来源允许的域名内。每个来源的网络抓取与重试共用 25 秒超时窗口，单个 RSS / Atom feed 最多解析 2000 条，响应大小受限。
 
@@ -157,7 +163,9 @@ Epic 条目的 `expiresAt` 来自当前免费促销的结束时间；服务端�
 
 Epic 商品列表为空或结构异常时，本轮该来源记为失败，不按异常结果清空旧条目；旧条目仍受上述在架和到期规则约束。若响应结构正常但没有符合条件的当前免费促销，则同步撤下旧 Epic 条目。其他来源抓取失败也不按失败结果清空已有条目。
 
-Epic 固定归为“游戏”，其他来源按标题信号评分：优惠、限免等明确表达加分，抽奖、求购、二手交易、提问和讨论表达扣分；仍可能误判。“其他”既可能包含非优惠内容，也可能包含未被规则识别的优惠。默认读取时重算分类，不改写已有条目；设置 `PERKRADAR_STORED_CATEGORIES=1` 可使用数据库中保存的分类。来源边界见 [docs/SOURCES.md](docs/SOURCES.md)。
+Epic 固定归为“游戏”，其他来源按标题信号评分：优惠、限免等明确表达加分，抽奖、求购、二手交易、提问和讨论表达扣分；仍可能误判。“其他”既可能包含非优惠内容，也可能包含未被规则识别的优惠。默认读取时重算分类，不改写已有条目；设置 `PERKRADAR_STORED_CATEGORIES=1` 可使用数据库中保存的分类。
+
+AI 分类叠在这套规则上面，不替换它。标题和摘要里要同时像 AI 话题、又像优惠、额度、折扣、优惠码、学生优惠、额度重置或新模型免费体验，才会标成 AI 线索。提问、求购和抽奖不会因为带了“免费”或“额度”就被算进去。来源本身已是 AI 清单或 AI 节点时，只要优惠信号成立即可。重置节奏只在原文写了每日、每周、每月或滚动额度时填写，不推算下一次重置的时间。截止日期只取原文里和“until / expires / 截止 / 到期”写在一起的日历日期；“30 天”“12 个月”这种时长保持在摘要里，不换成时间戳。来源边界见 [docs/SOURCES.md](docs/SOURCES.md)。
 
 ## 刷新和新鲜度
 
@@ -208,6 +216,28 @@ curl -sS http://127.0.0.1:38471/api/health
 curl -sS http://127.0.0.1:38471/api/deals
 ```
 
+### `GET /api/digest`
+
+给外部助手每天早上取最近一段时间新收录的 AI 线索。默认 `since=24h`、`format=markdown`。`since` 还可写 `7d`、`12h` 这种小时或天，最长 7 天；`format` 为 `markdown` 或 `json`。参数不合法返回 `400`。数据库不可读返回 `503`。开启认证后与其他数据接口一样需要 Bearer 或会话。
+
+只包含在架、且 `firstSeenAt` 落在窗口内、并被 AI 规则判为优惠的条目。按分类分组，组内按相关度排序。Markdown 用中文分类名做小节，每条有标题、来源、原文链接；只有原文写了到期或重置时才多一行。没有新线索时明确说这个窗口是空的，不补示例。
+
+```bash
+curl -sS "http://127.0.0.1:38471/api/digest?since=24h&format=markdown"
+```
+
+本机源码目录还可以直接打印同一份日报，不访问网络，也不创建数据库：
+
+```bash
+npm run digest -- --since=24h --format=markdown
+```
+
+生产容器没有这份脚本，早上的调用走上面的 HTTP 接口。容器部署命令仍是：
+
+```bash
+docker compose -p perkradar up -d --build
+```
+
 ### `POST /api/refresh`
 
 触发一次手动抓取。请求不需要 body。
@@ -244,6 +274,7 @@ curl -sS -X POST http://127.0.0.1:38471/api/refresh
 src/
 ├── app/
 │   ├── api/deals/       # 当前条目与看板数据
+│   ├── api/digest/      # 最近新收录的 AI 线索
 │   ├── api/health/      # 健康和新鲜度状态
 │   ├── api/refresh/     # 手动刷新
 │   ├── api/session/     # 登录与退出
@@ -259,6 +290,8 @@ src/
 │   ├── refresh.ts       # 抓取编排、锁和失败隔离
 │   ├── scheduler.ts     # 启动首轮和定时刷新
 │   ├── classify.ts      # 标题信号评分与分类
+│   ├── ai.ts            # AI 优惠判断、重置节奏和明确截止日期
+│   ├── digest.ts        # 日报分组与 Markdown
 │   ├── filter-deals.ts  # 页面筛选和排序
 │   ├── board-view.ts    # 客户端响应校验
 │   ├── source-defs.ts   # 固定来源和允许域名

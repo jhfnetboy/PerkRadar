@@ -9,6 +9,18 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+/** AI-only overlay. The base classifier still owns `category`. */
+export const AI_CATEGORIES = [
+  "免费额度",
+  "额度重置",
+  "限时折扣",
+  "优惠码",
+  "学生/教育",
+  "新模型免费体验",
+] as const;
+
+export type AiCategory = (typeof AI_CATEGORIES)[number];
+
 export type ParsedItem = {
   url: string;
   title: string;
@@ -52,6 +64,11 @@ export type DealDTO = {
   expiresLabel: string | null;
   expiresSoon: boolean;
   isNew: boolean;
+  /** Read-time AI overlay. Missing on older responses means not relevant. */
+  aiRelevant?: boolean;
+  aiCategory?: AiCategory | null;
+  relevance?: number;
+  resetCadence?: string | null;
 };
 
 export type FailureDTO = {

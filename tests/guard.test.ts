@@ -17,7 +17,17 @@ describe("guards and source URLs", () => {
     assert.equal(byId.linuxdo, "https://r.jina.ai/https://linux.do/c/welfare/36.rss");
     assert.equal(byId.v2ex, "https://www.v2ex.com/feed/promotions.xml");
     assert.equal(byId.iplaysoft, "https://www.iplaysoft.com/feed");
-    assert.equal(SOURCE_DEFS.length, 7);
+    assert.equal(SOURCE_DEFS.length, 17);
+    assert.equal(byId["hn-ai"], "https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=30&restrictSearchableAttributes=title&advancedSyntax=true");
+    assert.equal(byId["producthunt-ai"], "https://www.producthunt.com/feed?category=artificial-intelligence");
+    assert.equal(byId["v2ex-openai"], "https://www.v2ex.com/feed/openai.xml");
+    assert.equal(byId["v2ex-cursor"], "https://www.v2ex.com/feed/cursor.xml");
+    assert.equal(byId["v2ex-claude"], "https://www.v2ex.com/feed/claude.xml");
+    assert.equal(byId["v2ex-gemini"], "https://www.v2ex.com/feed/gemini.xml");
+    assert.equal(byId["v2ex-deepseek"], "https://www.v2ex.com/feed/deepseek.xml");
+    assert.equal(byId["v2ex-aigc"], "https://www.v2ex.com/feed/aigc.xml");
+    assert.equal(byId["free-llm"], "https://raw.githubusercontent.com/nejib1/Free-LLM/main/README.md");
+    assert.equal(byId["ai-programs"], "https://raw.githubusercontent.com/pacocartones/free-llm-api-hub/main/data/programs.json");
     assert.equal(
       SOURCE_DEFS.some((source) => source.url.endsWith("/feed/promotion.xml")),
       false,

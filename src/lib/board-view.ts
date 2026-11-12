@@ -1,5 +1,5 @@
 import { BOARD_MAX_ITEMS, MAX_URL_CHARS, SUMMARY_MAX, TITLE_MAX } from "./config";
-import { CATEGORIES, type BoardState, type Category, type DealDTO, type FailureDTO, type FreshnessDTO, type SourceStatus } from "./types";
+import { AI_CATEGORIES, CATEGORIES, type AiCategory, type BoardState, type Category, type DealDTO, type FailureDTO, type FreshnessDTO, type SourceStatus } from "./types";
 
 /** 客户端边界校验：接口、SSR 快照和刷新结果都按不可信输入处理，坏字段不能让页面崩溃。 */
 // 与服务端入库边界保持一致：URL 2048 字、单轮最多 2000 条，异常响应也按同一上限截断。
@@ -94,6 +94,11 @@ function categoryOf(value: unknown): Category {
   return (CATEGORIES as readonly string[]).includes(raw) ? (raw as Category) : "其他";
 }
 
+function aiCategoryOf(value: unknown): AiCategory | null {
+  const raw = typeof value === "string" ? value : "";
+  return (AI_CATEGORIES as readonly string[]).includes(raw) ? (raw as AiCategory) : null;
+}
+
 function normalizeDeal(value: unknown): DealDTO | null {
   if (!isRecord(value)) return null;
   const canonicalUrl = safeHttpUrl(value.canonicalUrl);
@@ -113,6 +118,10 @@ function normalizeDeal(value: unknown): DealDTO | null {
     expiresLabel: nullableText(value.expiresLabel, SHORT_MAX),
     expiresSoon: boolean(value.expiresSoon),
     isNew: boolean(value.isNew),
+    aiRelevant: value.aiRelevant === true,
+    aiCategory: aiCategoryOf(value.aiCategory),
+    relevance: Math.max(0, finiteNumber(value.relevance, 0)),
+    resetCadence: nullableText(value.resetCadence, 40),
   };
 }
 

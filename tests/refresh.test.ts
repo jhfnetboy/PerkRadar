@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { listDeals } from "../src/lib/db";
 import { RefreshRejected, runRefresh } from "../src/lib/refresh";
 import type { FetchLike } from "../src/lib/http";
+import { SOURCE_DEFS, type SourceDef } from "../src/lib/source-defs";
 import { atomFeed, EMPTY_RSS, linuxdoItem, responseFor, rssFeed, useMemoryDb } from "./helpers";
 
 const NOW = Date.parse("2026-11-08T00:00:00.000Z");
@@ -103,23 +104,21 @@ function bodies(overrides: Record<string, string> = {}): Record<string, string> 
   };
 }
 
+function emptyBody(source: SourceDef): string {
+  if (source.format === "hn") return JSON.stringify({ hits: [] });
+  if (source.format === "json-programs") return JSON.stringify({ startups: [], research: [] });
+  if (source.format === "markdown-table") return "# synthetic\n";
+  return EMPTY_RSS;
+}
+
 function fetchFrom(map: Record<string, string>, fail: string[] = []): FetchLike {
   return async (input) => {
     const url = String(input);
-    const key = Object.keys(map).find((name) => {
-      if (name === "linuxdo") return url.includes("r.jina.ai");
-      if (name === "v2ex") return url.includes("v2ex.com");
-      if (name === "epic") return url.includes("epicgames.com");
-      if (name === "nodeseek") return url.includes("nodeseek.com");
-      if (name === "appinn") return url.includes("appinn.com");
-      if (name === "ghxi") return url.includes("ghxi.com");
-      if (name === "iplaysoft") return url.includes("iplaysoft.com");
-      return false;
-    });
-    if (!key) throw new Error(`unexpected url ${url}`);
-    if (fail.includes(key)) throw new Error("HTTP 503");
-    const finalUrl = key === "iplaysoft" ? "https://feed.iplaysoft.com/" : url;
-    return responseFor(map[key]!, finalUrl);
+    const source = [...SOURCE_DEFS].sort((a, b) => b.url.length - a.url.length).find((item) => url.startsWith(item.url));
+    if (!source) throw new Error(`unexpected url ${url}`);
+    if (fail.includes(source.id)) throw new Error("HTTP 503");
+    const finalUrl = source.id === "iplaysoft" ? "https://feed.iplaysoft.com/" : url;
+    return responseFor(map[source.id] ?? emptyBody(source), finalUrl);
   };
 }
 
@@ -149,7 +148,7 @@ describe("refresh", { concurrency: false }, () => {
     assert.equal(game?.expiresLabel, "2026-11-10 08:00");
     assert.equal(board.sources.find((source) => source.id === "iplaysoft")?.lastFinalUrl, "https://feed.iplaysoft.com/");
     assert.equal(board.newCount, board.deals.length);
-    assert.equal(board.sourceHealth.ok, 7);
+    assert.equal(board.sourceHealth.ok, SOURCE_DEFS.length);
     assert.equal(board.refreshInProgress, false);
 
     const second = await runRefresh({
@@ -205,7 +204,7 @@ describe("refresh", { concurrency: false }, () => {
     assert.equal(failure?.error, "HTTP 503");
     assert.equal(after.deals.find((item) => item.id === before!.id)?.isNew, false);
     assert.equal(after.roundStatus, "partial");
-    assert.equal(after.sourceHealth.ok, 6);
+    assert.equal(after.sourceHealth.ok, SOURCE_DEFS.length - 1);
   });
 
   it("removes an Epic game that is no longer free without touching a failed Epic round", async () => {
@@ -303,7 +302,7 @@ describe("refresh", { concurrency: false }, () => {
     });
     assert.equal(listDeals().length, before);
     assert.equal(board.roundStatus, "failed");
-    assert.equal(board.failures.length, 7);
+    assert.equal(board.failures.length, SOURCE_DEFS.length);
     assert.ok(board.failures.every((failure) => failure.error === "超时"));
     assert.equal(board.newCount, 0);
   });

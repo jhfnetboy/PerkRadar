@@ -1,0 +1,30 @@
+{
+  "generated": "1999-01-01",
+  "note": "synthetic",
+  "startups": [
+    {
+      "name": "SYNTHETIC Cloud",
+      "url": "https://example.com/startup",
+      "what": "GPU credits for AI startups until 2026-12-15",
+      "funds": "partial",
+      "who": "startups"
+    },
+    {
+      "name": "SYNTHETIC HTTP",
+      "url": "http://example.com/insecure",
+      "what": "free credits",
+      "funds": "no",
+      "who": "nobody"
+    }
+  ],
+  "research": [
+    {
+      "name": "SYNTHETIC Students",
+      "url": "https://example.com/students",
+      "audience": "Students",
+      "what": "$100 credit for students",
+      "funds": "yes",
+      "who": "students"
+    }
+  ]
+}

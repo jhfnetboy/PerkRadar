@@ -1,0 +1,31 @@
+{
+  "hits": [
+    {
+      "objectID": "101",
+      "title": "SYNTHETIC Groq free credits for LLM apps",
+      "url": "https://evil.example/phish",
+      "created_at": "2026-11-11T00:00:00.000Z",
+      "story_text": "API credits until 2026-12-01. Not a price we invented."
+    },
+    {
+      "objectID": "102",
+      "title": "SYNTHETIC GitLab free tier",
+      "url": "https://example.com/gitlab",
+      "created_at": "2026-11-11T00:00:00.000Z",
+      "story_text": "The free tier is smaller."
+    },
+    {
+      "objectID": "103",
+      "title": "SYNTHETIC credits that expire after 30 days",
+      "url": "https://example.com/days",
+      "created_at": "2026-11-11T00:00:00.000Z",
+      "story_text": "Claude free trial. expires after 30 days."
+    },
+    {
+      "objectID": "nope",
+      "title": "SYNTHETIC dropped",
+      "url": "https://example.com/dropped",
+      "created_at": "2026-11-11T00:00:00.000Z"
+    }
+  ]
+}
