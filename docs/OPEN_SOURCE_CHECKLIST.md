@@ -52,9 +52,11 @@ README 首屏明确：定位是「多来源优惠线索聚合」，不是逐条�
 
 ## 6. 持续集成与依赖审计
 
-- `.github/workflows/ci.yml`：推送 `main`、Pull Request 或手动触发；Node `22.13.0` / `24` 矩阵运行 `npm ci`、离线测试、Lint、类型检查、生产构建与官方 registry 的生产依赖审计。仅推送其他分支不会自动触发这套 CI。
+- `.github/workflows/verify.yml`：唯一的验证定义（`workflow_call`）。步骤为 `npm ci`、离线测试、Lint、类型检查、生产构建、静态快照查看器构建、官方 registry 的生产依赖审计。不读取密钥，不设置 `DISABLE_SCHEDULER`、`DATA_DIR` 或 `DEALS_SNAPSHOT_DIR`。
+- `.github/workflows/ci.yml`：推送 `main`、Pull Request 或手动触发时调用 `verify.yml`，Node `22.13.0` / `24` 矩阵。另安装固定 sha256 的 actionlint，检查 `.github/workflows/`。仅推送其他分支不会自动触发这套 CI。
+- `.github/workflows/snapshot-pages.yml`：`schedule`、`workflow_dispatch` 与 `pull_request`。验证调用同一个 `verify.yml`（Node 22，与发布作业一致）。Pull Request 会跑这次验证并让 GitHub 解析发布作业，但不抓取、不使用密钥、不部署。发布作业只在默认分支运行，作业级 `DISABLE_SCHEDULER=1`；目录通过步骤写入 `GITHUB_ENV`，因为 `runner` 上下文不能出现在作业级 `env`。
 - `.github/workflows/live-sources.yml`：`workflow_dispatch` + `schedule`（cron 用 UTC，`23 4 * * *` 即北京时间 12:23），单独运行、写临时 `DATA_DIR`、设 `DISABLE_SCHEDULER=1`，不进入 PR 必过项。
-- 三个 workflow 都声明 `permissions: contents: read`。
+- 验证与实时源工作流声明 `permissions: contents: read`。`snapshot-pages.yml` 的部署作业另要 `pages: write` 与 `id-token: write`，且条件排除 Pull Request。
 - `.github/workflows/secret-scan.yml`：`checkout` 带 `fetch-depth: 0`，安装固定版本并校验 sha256 的 gitleaks CLI，扫描 push / PR / 每日定时的全部可达提交；发现凭据即让检查失败。不用 action 封装，避免它依赖 push 事件的 before/after SHA 在强推后失效。
 - `package.json` 声明 `engines.node >=22.13`。Next 锁定为 15.5.29，ESLint 为 9；具体依赖解析以 `package-lock.json` 为准。
 

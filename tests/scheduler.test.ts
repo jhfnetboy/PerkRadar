@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { REFRESH_INTERVAL_MS, SCHEDULER_FAILED_RETRY_MS } from "../src/lib/config";
 import { acquireLease, getDb, getMeta, releaseLease } from "../src/lib/db";
-import { startScheduler, stopSchedulerForTests } from "../src/lib/scheduler";
+import { shouldStartScheduler, startScheduler, stopSchedulerForTests } from "../src/lib/scheduler";
 import type { BoardState } from "../src/lib/types";
 import { useMemoryDb } from "./helpers";
 
@@ -16,10 +16,54 @@ function leaseOwner(): string | undefined {
   return row ? String(row.owner) : undefined;
 }
 
+const SCHEDULER_GATES = ["DISABLE_SCHEDULER", "NEXT_PHASE", "npm_lifecycle_event"] as const;
+
 describe("scheduler", { concurrency: false }, () => {
+  let savedGates = new Map<string, string | undefined>();
+
+  // These tests call startScheduler directly. The process-wide kill switch is
+  // for the server entrypoint; a leaked DISABLE_SCHEDULER, NEXT_PHASE, or
+  // npm_lifecycle_event=build would skip the run the assertions are about.
+  beforeEach(() => {
+    savedGates = new Map(SCHEDULER_GATES.map((key) => [key, process.env[key]]));
+    for (const key of SCHEDULER_GATES) delete process.env[key];
+  });
+
   afterEach(() => {
     stopSchedulerForTests();
     mock.timers.reset();
+    for (const [key, value] of savedGates) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it("stays idle when a process gate closes scheduling", async () => {
+    useMemoryDb();
+    const gates: [string, string][] = [
+      ["DISABLE_SCHEDULER", "1"],
+      ["NEXT_PHASE", "phase-production-build"],
+      ["npm_lifecycle_event", "build"],
+    ];
+    for (const [key, value] of gates) {
+      stopSchedulerForTests();
+      mock.timers.reset();
+      for (const gate of SCHEDULER_GATES) delete process.env[gate];
+      mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.parse("2026-11-11T00:00:00Z") });
+      process.env[key] = value;
+      assert.equal(shouldStartScheduler(), false, key);
+      let calls = 0;
+      startScheduler({
+        bootDelayMs: 1,
+        run: async () => {
+          calls += 1;
+          return board();
+        },
+      });
+      mock.timers.tick(60_000);
+      await settle();
+      assert.equal(calls, 0, key);
+    }
   });
 
   it("uses a two-hour server interval and fires the supplied run once on boot", async () => {

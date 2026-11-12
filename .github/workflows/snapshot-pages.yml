@@ -2,26 +2,37 @@ name: Snapshot to Pages
 
 on:
   workflow_dispatch:
+  pull_request:
   schedule:
     # GitHub cron 使用 UTC，与应用两小时抓取间隔一致。
     - cron: '23 */2 * * *'
 
 concurrency:
-  group: snapshot-pages
+  # PR 检查不能占用定时发布的并发组，否则会挡住或被挡住抓取。
+  group: ${{ github.event_name == 'pull_request' && format('snapshot-pages-{0}', github.ref) || 'snapshot-pages' }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  verify:
+    # 与 CI 共用 verify.yml。调用方加不了 job env，发布用的 DISABLE_SCHEDULER 不会漏进测试。
+    # Pull Request 也跑这一作业：GitHub 会解析后面的发布作业，且验证路径和定时发布前的那次相同。
+    uses: ./.github/workflows/verify.yml
+    with:
+      node-version: '22'
+
   snapshot:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: verify
+    if: success() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       actions: read
     env:
+      # 只在这个不跑测试的作业里关掉调度，避免一次性抓取再拉起后台轮询。
       DISABLE_SCHEDULER: '1'
     steps:
       - uses: actions/checkout@v4
@@ -39,14 +50,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Verify before publication
-        run: |
-          npm test
-          npm run lint
-          npx tsc --noEmit --incremental false
-          npm run build
-          npm audit --omit=dev --registry=https://registry.npmjs.org
-
       - name: Find the last successfully published snapshot
         id: baseline
         uses: actions/github-script@v7
@@ -119,6 +122,7 @@ jobs:
 
   deploy:
     needs: snapshot
+    if: success() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     permissions:
       pages: write

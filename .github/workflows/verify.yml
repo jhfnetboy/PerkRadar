@@ -1,0 +1,44 @@
+name: Verify
+
+# Single verification path for CI and for the snapshot publish workflow.
+# Callers cannot inject env into this job. Do not set DISABLE_SCHEDULER,
+# DATA_DIR, or DEALS_SNAPSHOT_DIR here: those belong to one-shot publish
+# steps, and a job-level scheduler switch makes the scheduler tests fail.
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version passed to actions/setup-node
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Unit tests (offline fixtures only)
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit --incremental false
+      - name: Production build
+        run: npm run build
+      - name: Static snapshot viewer build
+        run: npm run build:snapshot
+      # Some npm mirrors do not implement the audit endpoint. Pin the official
+      # registry so this step fails on real advisories, not on a mirror error.
+      - name: Production dependency audit
+        run: npm audit --omit=dev --registry=https://registry.npmjs.org

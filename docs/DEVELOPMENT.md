@@ -60,7 +60,7 @@ Docker 的构建和启停见 [OPERATIONS.md](OPERATIONS.md)。
 
 `npm run build:snapshot` 使用项目已安装的 TypeScript，将 `snapshot-viewer/` 和它引用的共享浏览器逻辑编译到 `.snapshot-site/`；也可通过 `SNAPSHOT_SITE_DIR` 指定产物目录。它复用 `filterDeals` 和个人状态存储，浏览器不依赖 Node 服务。
 
-定时发布流程为 `report` → `write-snapshot.ts` → `snapshot:prepare` → `build:snapshot` → Pages。前两步通过 `DATA_DIR` / `DEALS_SNAPSHOT_DIR` 只写 runner 临时目录；`snapshot:prepare` 需要 `DEALS_SNAPSHOT_DIR` 和 `SNAPSHOT_SITE_DIR`，可选 `SNAPSHOT_PREVIOUS_FILE` 指向上一轮公开快照。它输出 `latest.json`、`previous.json` 和 `status.json`，校验失败时退出非零，首次全失败也停止发布。
+定时发布流程为验证 → `report` → `write-snapshot.ts` → `snapshot:prepare` → `build:snapshot` → Pages。验证与 CI 共用 `.github/workflows/verify.yml`，不带 `DISABLE_SCHEDULER` 或 `DATA_DIR`。发布作业才设置 `DISABLE_SCHEDULER=1`，并用 `GITHUB_ENV` 把目录指到 runner 临时路径。前两步通过 `DATA_DIR` / `DEALS_SNAPSHOT_DIR` 只写 runner 临时目录；`snapshot:prepare` 需要 `DEALS_SNAPSHOT_DIR` 和 `SNAPSHOT_SITE_DIR`，可选 `SNAPSHOT_PREVIOUS_FILE` 指向上一轮公开快照。它输出 `latest.json`、`previous.json` 和 `status.json`，校验失败时退出非零，首次全失败也停止发布。
 
 `src/lib/snapshot-publish.ts` 合并仍在架的历史条目，并保留无发布时间条目的 `firstSeenAt`；Epic 成功响应中的免费集合以本轮为准。全失败时 `latest.json` 原样保留，`status.json` 记录本轮尝试与 `retainedPrevious`。`baselineAvailable` 区分首轮和有效空基线。工作流只恢复上次整条发布流程成功的 artifact，避免部署失败的未公开轮次成为新增基线；定时发布串行执行。
 
@@ -78,7 +78,7 @@ Docker 的构建和启停见 [OPERATIONS.md](OPERATIONS.md)。
 
 依赖审计：生产依赖 `npm audit --omit=dev` 为 0 项；完整 `npm audit` 的 11 项全部在开发依赖里（`shadcn` 的 `deepmerge`、`typescript-eslint` / `ts-morph` 的 `minimatch`）。已尝试兼容范围的typescript-eslint更新，剩余告警仍未消除；审计建议的破坏性修复会把 `shadcn` 换成不兼容的大版本，因此不要用它。CI 已显式指定官方 registry；本机默认 npm 镜像不支持 audit 端点，本地复查要手动加 `--registry=https://registry.npmjs.org`（如 `npm audit --omit=dev --registry=https://registry.npmjs.org`）。依赖或锁文件变更后必须重新跑，不能把任何一次结果写成永久保证。
 
-工程配置：`package.json` 声明 `engines.node >=22.13`，`.nvmrc` 为 22，常规CI矩阵为Node22.13/24，实时源工作流用Node22。`tsconfig.json` 与 `eslint.config.mjs` 都排除 `deployment-backups/`：那里有展开的旧 `next.config.ts`，会被 `include: **/*.ts` 扫到。`.dockerignore` 排除根目录文档和维护脚本，仅保留运行入口 scripts/serve.mjs，镜像仍以 `node`（uid 1000）非 root 运行。两个 workflow 声明 `permissions: contents: read`；`live-sources.yml` 的 cron 用 UTC（`23 4 * * *` 即北京时间 12:23）。Next 仍锁 15.5.29、ESLint 仍 9，没有升级大版本。
+工程配置：`package.json` 声明 `engines.node >=22.13`，`.nvmrc` 为 22，常规CI矩阵为Node22.13/24，实时源工作流用Node22。CI 矩阵和定时发布都调用 `.github/workflows/verify.yml`；PR 还会用固定版本的 actionlint 检查全部 workflow。`tsconfig.json` 与 `eslint.config.mjs` 都排除 `deployment-backups/`：那里有展开的旧 `next.config.ts`，会被 `include: **/*.ts` 扫到。`.dockerignore` 排除根目录文档和维护脚本，仅保留运行入口 scripts/serve.mjs，镜像仍以 `node`（uid 1000）非 root 运行。workflow 默认 `permissions: contents: read`；`live-sources.yml` 的 cron 用 UTC（`23 4 * * *` 即北京时间 12:23）。Next 仍锁 15.5.29、ESLint 仍 9，没有升级大版本。
 
 ## API
 
